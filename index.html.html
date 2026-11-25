@@ -1,0 +1,1594 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>宮裡帳房 — 夾錢記數與埋數神器</title>
+  <!-- 載入 Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- 載入 Supabase JS SDK（用於 3 人手機即時雲端同步） -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- 載入 Tesseract.js 進行免費瀏覽器端單據 OCR 辨識 -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <!-- 載入 Google Fonts (Inter + 華麗襯線標題字型) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700;900&family=Inter:wght@400;500;600;700;800&family=Noto+Serif+TC:wght@700;900&display=swap" rel="stylesheet" />
+  <style>
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+    @keyframes pulseBorder {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.35); }
+      50% { box-shadow: 0 0 0 6px rgba(249, 115, 22, 0); }
+    }
+    .first-unpaid-highlight {
+      animation: pulseBorder 2.2s ease-in-out 2;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen antialiased selection:bg-orange-100 selection:text-orange-800">
+
+  <!-- 宮廷暗號鎖覆蓋層 -->
+  <div id="passcode-gate" class="fixed inset-0 z-50 bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100 flex items-center justify-center p-4">
+    <div class="bg-white/95 backdrop-blur-md rounded-3xl max-w-sm w-full p-6 sm:p-7 shadow-xl border border-amber-200/90 text-center">
+      <div class="flex justify-center mb-3">
+        <img
+          src="LP monthly leaflet (3).png"
+          alt="宮裡帳房"
+          class="h-20 w-auto object-contain"
+          onerror="this.style.display='none'; this.nextElementSibling.style.display='block';"
+        />
+        <svg viewBox="0 0 360 190" class="h-20 w-auto hidden" xmlns="http://www.w3.org/2000/svg" aria-label="宮裡帳房">
+          <defs>
+            <linearGradient id="gateIngotGold" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#FFE14D" />
+              <stop offset="50%" stop-color="#FFB21E" />
+              <stop offset="100%" stop-color="#F57C00" />
+            </linearGradient>
+            <linearGradient id="gateIngotTop" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stop-color="#FFF078" />
+              <stop offset="100%" stop-color="#FF9E1B" />
+            </linearGradient>
+          </defs>
+          <path d="M92 64 C96 24, 152 14, 184 18 C216 22, 250 42, 252 74 Z" fill="url(#gateIngotTop)" />
+          <path d="M24 92 C14 58, 52 46, 94 58 C138 72, 214 70, 258 46 C302 22, 344 10, 348 52 C352 94, 326 146, 268 168 C210 188, 118 186, 66 160 C28 140, 32 116, 24 92 Z" fill="url(#gateIngotGold)" />
+          <text
+            x="182"
+            y="130"
+            text-anchor="middle"
+            font-family="'Noto Serif TC', 'PingFang TC', 'Microsoft JhengHei', sans-serif"
+            font-weight="900"
+            font-size="60"
+            letter-spacing="4"
+            fill="#FFFFFF"
+            stroke="#F48A42"
+            stroke-width="7"
+            paint-order="stroke fill"
+            stroke-linejoin="round"
+          >宮裡帳房</text>
+        </svg>
+      </div>
+      <h1 class="text-lg font-extrabold text-amber-950">閒人免進 · 請輸入宮廷暗號</h1>
+      <p class="text-xs text-slate-500 mt-1">入啱一次呢部電話就會自動記住</p>
+
+      <form id="passcode-form" class="mt-5 space-y-3">
+        <input
+          id="passcode-input"
+          type="password"
+          inputmode="numeric"
+          autocomplete="off"
+          placeholder="輸入宮廷暗號"
+          class="w-full px-4 py-3 text-center text-base font-bold tracking-[0.25em] rounded-2xl border border-amber-300 bg-amber-50/40 focus:outline-none focus:ring-2 focus:ring-orange-500"
+        />
+        <p id="passcode-error" class="hidden text-xs font-semibold text-rose-600">暗號唔啱喎，再試多次！</p>
+        <button
+          type="submit"
+          class="w-full py-3 px-4 rounded-2xl bg-orange-600 hover:bg-orange-700 active:scale-[0.99] text-white font-bold text-sm shadow-sm transition"
+        >進入宮裡帳房</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 主應用程式容器 -->
+  <div id="app" class="hidden min-h-screen flex flex-col pb-12">
+
+    <!-- 頂部導覽列 -->
+    <header class="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-2xs">
+      <div class="max-w-3xl mx-auto px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2 sm:gap-3">
+        <!-- 左上角：元寶「宮裡帳房」Logo（放大並維持完整比例） -->
+        <div class="shrink-0 flex items-center select-none">
+          <img
+            src="LP monthly leaflet (3).png"
+            alt="宮裡帳房"
+            class="h-14 sm:h-16 w-auto object-contain"
+            onerror="this.style.display='none'; this.nextElementSibling.style.display='block';"
+          />
+          <svg viewBox="0 0 360 190" class="h-14 sm:h-16 w-auto hidden" xmlns="http://www.w3.org/2000/svg" aria-label="宮裡帳房">
+            <defs>
+              <linearGradient id="ingotGold" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#FFE14D" />
+                <stop offset="50%" stop-color="#FFB21E" />
+                <stop offset="100%" stop-color="#F57C00" />
+              </linearGradient>
+              <linearGradient id="ingotTop" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="#FFF078" />
+                <stop offset="100%" stop-color="#FF9E1B" />
+              </linearGradient>
+            </defs>
+            <path d="M92 64 C96 24, 152 14, 184 18 C216 22, 250 42, 252 74 Z" fill="url(#ingotTop)" />
+            <ellipse cx="145" cy="40" rx="18" ry="6" transform="rotate(-18 145 40)" fill="#FFFDF0" opacity="0.85" />
+            <path d="M24 92 C14 58, 52 46, 94 58 C138 72, 214 70, 258 46 C302 22, 344 10, 348 52 C352 94, 326 146, 268 168 C210 188, 118 186, 66 160 C28 140, 32 116, 24 92 Z" fill="url(#ingotGold)" />
+            <path d="M44 76 C50 64, 62 62, 74 68" stroke="#FFFDF0" stroke-width="5" stroke-linecap="round" fill="none" opacity="0.8" />
+            <path d="M322 24 C330 34, 332 48, 328 60" stroke="#FFFDF0" stroke-width="6" stroke-linecap="round" fill="none" opacity="0.85" />
+            <circle cx="323" cy="73" r="4" fill="#FFFDF0" opacity="0.85" />
+            <text
+              x="182"
+              y="130"
+              text-anchor="middle"
+              font-family="'Noto Serif TC', 'PingFang TC', 'Microsoft JhengHei', sans-serif"
+              font-weight="900"
+              font-size="60"
+              letter-spacing="4"
+              fill="#FFFFFF"
+              stroke="#F48A42"
+              stroke-width="7"
+              paint-order="stroke fill"
+              stroke-linejoin="round"
+            >宮裡帳房</text>
+          </svg>
+        </div>
+
+        <!-- 靠右：重設示範 + 溫暖杏黃色三頁切換列 -->
+        <div class="flex flex-col items-end gap-1.5 min-w-0">
+          <div class="flex items-center gap-1.5">
+            <span id="sync-status-badge" class="text-[10px] font-semibold px-2 py-1 rounded-lg bg-slate-100 text-slate-500 border border-slate-200">本機模式</span>
+            <button
+              id="btn-reset-demo"
+              type="button"
+              class="text-[11px] font-medium px-2.5 py-1 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200 transition"
+            >重設示範</button>
+          </div>
+
+          <nav class="grid grid-cols-3 gap-1.5 sm:gap-2 bg-[#FEF3C7] border border-amber-300/80 p-1.5 rounded-2xl w-[285px] sm:w-[430px] shadow-2xs">
+            <button
+              type="button"
+              data-main-tab="add"
+              class="main-tab-btn py-2 px-1.5 sm:px-2.5 text-[11px] sm:text-xs font-bold rounded-xl bg-white text-orange-600 shadow-xs transition whitespace-nowrap"
+            >記一條新數 ✍️</button>
+            <button
+              type="button"
+              data-main-tab="person"
+              class="main-tab-btn py-2 px-1.5 sm:px-2.5 text-[11px] sm:text-xs font-bold rounded-xl border border-white/90 text-amber-900 hover:bg-white/60 transition whitespace-nowrap"
+            >個人帳簿 💁‍♀️</button>
+            <button
+              type="button"
+              data-main-tab="summary"
+              class="main-tab-btn py-2 px-1.5 sm:px-2.5 text-[11px] sm:text-xs font-bold rounded-xl border border-white/90 text-amber-900 hover:bg-white/60 transition whitespace-nowrap"
+            >總帳簿 💁‍♀️💁‍♀️💁‍♀️</button>
+          </nav>
+        </div>
+      </div>
+    </header>
+
+    <!-- 成員改名彈窗 -->
+    <div id="names-modal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+      <div class="bg-white rounded-2xl max-w-md w-full p-5 shadow-xl border border-slate-200">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-base font-bold text-slate-900">自訂 3 位宮中成員名稱</h2>
+          <button id="btn-close-names-x" type="button" class="text-slate-400 hover:text-slate-600 p-1">✕</button>
+        </div>
+        <p class="text-xs text-slate-500 mb-4">修改後全站總帳簿及個人帳簿會即時更新稱呼。</p>
+        <div class="space-y-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">成員 A（白貓）</label>
+            <input id="input-name-A" type="text" maxlength="12" class="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-orange-500" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">成員 B（三色貓）</label>
+            <input id="input-name-B" type="text" maxlength="12" class="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-orange-500" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">成員 C（灰貓）</label>
+            <input id="input-name-C" type="text" maxlength="12" class="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-orange-500" />
+          </div>
+        </div>
+        <div class="mt-5 flex justify-end gap-2">
+          <button id="btn-close-names" type="button" class="px-4 py-2 text-xs font-medium rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50">取消</button>
+          <button id="btn-save-names" type="button" class="px-4 py-2 text-xs font-semibold rounded-xl bg-orange-600 text-white hover:bg-orange-700">儲存名稱</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 刪除確認彈窗 -->
+    <div id="delete-modal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+      <div class="bg-white rounded-2xl max-w-xs w-full p-5 shadow-xl border border-slate-200 text-center">
+        <div id="delete-modal-title" class="text-base font-bold text-slate-900 flex items-center justify-center gap-1.5"></div>
+        <div class="mt-5 grid grid-cols-2 gap-2.5">
+          <button id="btn-cancel-delete" type="button" class="py-2.5 px-3 text-xs font-semibold rounded-xl border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition">
+            Sor㩒錯
+          </button>
+          <button id="btn-confirm-delete" type="button" class="py-2.5 px-3 text-xs font-bold rounded-xl bg-rose-600 text-white hover:bg-rose-700 transition">
+            係呀 刪呀
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 主內容容器 -->
+    <main class="max-w-3xl w-full mx-auto px-4 pt-4 flex-1">
+
+      <!-- ========================================================= -->
+      <!-- 分頁 1：記一條新數（影單 OCR + 手動輸入整合）               -->
+      <!-- ========================================================= -->
+      <section id="view-add" class="space-y-4">
+        <!-- 單據拍照／上載區 -->
+        <div class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-2xs">
+          <label
+            for="receipt-file-input"
+            class="flex flex-col items-center justify-center border-2 border-dashed border-orange-300 bg-orange-50/50 hover:bg-orange-50 rounded-2xl p-4 cursor-pointer transition text-center"
+          >
+            <span class="text-2xl mb-1">🧾</span>
+            <span class="text-xs sm:text-sm font-bold text-orange-700">影張單 / 揀相簿收據自動辨識 / 直接下面手動填</span>
+            <input id="receipt-file-input" type="file" accept="image/*" class="hidden" />
+          </label>
+
+          <!-- OCR 進度及預覽區 -->
+          <div id="ocr-status-box" class="hidden mt-3 p-3 rounded-xl bg-slate-50 border border-slate-200">
+            <div class="flex items-center justify-between gap-2">
+              <span id="ocr-status-text" class="text-xs font-semibold text-orange-600">正在辨識單據文字...</span>
+              <span id="ocr-progress-pct" class="text-xs font-bold text-slate-600">0%</span>
+            </div>
+            <div class="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden mt-2">
+              <div id="ocr-progress-bar" class="h-full bg-orange-500 transition-all duration-200" style="width: 0%"></div>
+            </div>
+            <div id="receipt-preview-wrap" class="hidden mt-3 flex items-start gap-3">
+              <img id="receipt-preview-img" src="" alt="單據預覽" class="w-16 h-16 object-cover rounded-xl border border-slate-200 shrink-0" />
+              <div class="min-w-0 flex-1">
+                <p class="text-[11px] font-semibold text-slate-600">辨識原文摘要（可喺下面欄位微調）：</p>
+                <p id="ocr-raw-snippet" class="text-[11px] text-slate-500 line-clamp-3 mt-0.5 break-words"></p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 帳單表單 -->
+        <form id="expense-form" class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-2xs space-y-4">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label for="field-date" class="block text-xs font-bold text-slate-700 mb-1">日期</label>
+              <input
+                id="field-date"
+                type="date"
+                required
+                class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-orange-500"
+              />
+            </div>
+            <div>
+              <label for="field-amount" class="block text-xs font-bold text-slate-700 mb-1">港幣</label>
+              <input
+                id="field-amount"
+                type="number"
+                step="0.01"
+                min="0.01"
+                placeholder="0.00"
+                required
+                class="w-full px-3.5 py-2.5 text-sm font-semibold rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-orange-500"
+              />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label for="field-merchant" class="block text-xs font-bold text-slate-700 mb-1">咩黎</label>
+              <input
+                id="field-merchant"
+                type="text"
+                placeholder="例如：譚仔三哥 / 戲飛 / 淘寶"
+                required
+                class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-orange-500"
+              />
+            </div>
+            <div>
+              <label for="field-note" class="block text-xs font-bold text-slate-700 mb-1">備註</label>
+              <input
+                id="field-note"
+                type="text"
+                placeholder="例如：一人一碗米線 / 幫手買"
+                class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-orange-500"
+              />
+            </div>
+          </div>
+
+          <!-- 邊個俾左錢先? -->
+          <div class="pt-1">
+            <label class="block text-xs font-bold text-slate-700 mb-2">邊個俾左錢先?</label>
+            <div id="payer-selector" class="grid grid-cols-3 gap-2"></div>
+          </div>
+
+          <!-- 邊個要俾返錢？ -->
+          <div class="pt-1">
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <label class="block text-xs font-bold text-slate-700">邊個要俾返錢？</label>
+              <div class="flex items-center gap-1.5">
+                <button id="btn-share-all" type="button" class="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-amber-100 text-amber-800 hover:bg-amber-200 transition">3人平分</button>
+              </div>
+            </div>
+            <div id="sharer-selector" class="grid grid-cols-3 gap-2"></div>
+            <p id="split-preview-text" class="mt-2 text-xs text-slate-500 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200/80"></p>
+          </div>
+
+          <button
+            type="submit"
+            class="w-full py-3 px-4 rounded-xl bg-orange-600 hover:bg-orange-700 active:scale-[0.99] text-white font-bold text-sm shadow-sm transition whitespace-pre"
+          >🙆‍♀️  記一個數  🙆‍♀️</button>
+        </form>
+      </section>
+
+      <!-- ========================================================= -->
+      <!-- 分頁 2：個人帳簿（切換視角 + 我要俾既錢 / 個人Overall）     -->
+      <!-- ========================================================= -->
+      <section id="view-person" class="hidden space-y-4">
+        <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-2xs">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <span class="text-xs sm:text-sm font-bold text-slate-700">切換視角：</span>
+            <div id="person-selector" class="grid grid-cols-3 gap-2 flex-1 sm:max-w-md"></div>
+          </div>
+
+          <!-- 該成員嘅兩個子頁面切換 -->
+          <div class="mt-3 grid grid-cols-2 gap-1.5 bg-slate-100 p-1 rounded-xl">
+            <button
+              type="button"
+              data-sub-tab="payback"
+              class="sub-tab-btn py-2 px-2 text-xs sm:text-sm font-semibold rounded-lg bg-white text-orange-600 shadow-2xs transition whitespace-pre"
+            >我要俾既錢  💸</button>
+            <button
+              type="button"
+              data-sub-tab="overall"
+              class="sub-tab-btn py-2 px-2 text-xs sm:text-sm font-semibold rounded-lg text-slate-600 hover:text-slate-900 transition whitespace-pre"
+            >個人Overall  📒</button>
+          </div>
+        </div>
+
+        <!-- 子頁面 1：我要俾既錢 -->
+        <div id="subview-payback" class="space-y-3">
+          <!-- 頂部欠款統計卡（Pastel 淺橙色系） -->
+          <div class="bg-gradient-to-br from-orange-100 via-amber-100 to-orange-50 border border-orange-200/80 rounded-2xl p-4 sm:p-5 text-orange-950 shadow-2xs">
+            <div id="payback-header-title" class="text-sm sm:text-base font-extrabold text-orange-900"></div>
+            <div id="payback-owed-cards" class="mt-3 grid grid-cols-2 gap-2.5"></div>
+          </div>
+
+          <!-- 快速全選制（default 白色底，㩒左變淺綠色底） -->
+          <div id="quick-select-bar" class="grid grid-cols-2 gap-2"></div>
+
+          <!-- 個人需還款項目列表（由最舊排至最新，自動跳至最舊未付） -->
+          <div id="payback-list" class="space-y-2.5 max-h-[55vh] overflow-y-auto pr-0.5"></div>
+
+          <!-- 底部勾選結算列 -->
+          <div class="sticky bottom-3 z-20 bg-white/95 backdrop-blur-md border border-orange-200 rounded-2xl p-3.5 shadow-lg">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div>
+                <div class="text-[11px] font-bold text-slate-500">依家揀左:</div>
+                <div id="selected-pay-summary" class="text-xs sm:text-sm font-extrabold text-slate-900 mt-0.5">你咩都未揀</div>
+              </div>
+              <button
+                id="btn-confirm-pay"
+                type="button"
+                disabled
+                class="py-2.5 px-4 rounded-xl bg-emerald-600 disabled:bg-slate-200 disabled:text-slate-400 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm transition shrink-0"
+              >俾左啦 轉做已付</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 子頁面 2：個人Overall -->
+        <div id="subview-overall" class="hidden space-y-3">
+          <div id="overall-stats-grid" class="grid grid-cols-2 gap-2.5"></div>
+          <div id="overall-list" class="space-y-2.5 max-h-[60vh] overflow-y-auto pr-0.5"></div>
+        </div>
+      </section>
+
+      <!-- ========================================================= -->
+      <!-- 分頁 3：總帳簿（由最舊日期排至最新，自動跳至最舊未找齊）     -->
+      <!-- ========================================================= -->
+      <section id="view-summary" class="hidden space-y-3">
+        <div class="flex items-center justify-between px-1">
+          <h2 class="text-sm font-bold text-slate-700">所有帳目紀錄（由最舊至最新）</h2>
+          <span id="summary-count-badge" class="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800">0 筆</span>
+        </div>
+        <div id="summary-list" class="space-y-2.5 max-h-[68vh] overflow-y-auto pr-0.5"></div>
+      </section>
+
+    </main>
+
+    <!-- 全站最底：我要改名按鈕 -->
+    <footer class="max-w-3xl w-full mx-auto px-4 pt-6 pb-4 text-center">
+      <button
+        id="btn-open-names"
+        type="button"
+        class="inline-flex items-center justify-center px-5 py-2.5 rounded-xl bg-white hover:bg-amber-50 text-slate-600 hover:text-amber-800 text-xs font-semibold border border-slate-200 shadow-2xs transition"
+      >我要改名</button>
+    </footer>
+
+  </div>
+
+  <!-- 輕量提示 Toast -->
+  <div id="toast" class="hidden fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white text-xs font-semibold px-4 py-2.5 rounded-full shadow-lg"></div>
+
+  <script>
+    // =========================================================================
+    // ★ 已填入你嘅 Supabase Project URL 同 Publishable Key（3 部電話即時雲端同步） ★
+    // =========================================================================
+    const SUPABASE_URL = 'https://bduvifjncvolckuclmhr.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_9h7HNqIDY5Vi3H-EgK-Oag_0srfOoqz';
+    const ROOM_ID = 'palace-3-sisters';
+    const PALACE_PASSCODE = '19930217';
+    const PASSCODE_UNLOCK_KEY = 'PALACE_UNLOCKED_19930217';
+
+    const STORAGE_KEY = 'PALACE_SPLIT_LEDGER_V1';
+    const MEMBERS = ['A', 'B', 'C'];
+    const DEFAULT_NAMES = {
+      A: '本宮',
+      B: '克朗晴子',
+      C: '巨May嬤'
+    };
+
+    const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    let supabaseClient = null;
+    const isSupabaseConfigured =
+      SUPABASE_URL.startsWith('https://') &&
+      SUPABASE_ANON_KEY &&
+      SUPABASE_ANON_KEY !== 'YOUR_SUPABASE_ANON_KEY';
+
+    if (isSupabaseConfigured && window.supabase) {
+      supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    }
+
+    function updateSyncBadge(text, type = 'local') {
+      const el = document.getElementById('sync-status-badge');
+      if (!el) return;
+      el.textContent = text;
+      if (type === 'cloud') {
+        el.className = 'text-[10px] font-semibold px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200';
+      } else if (type === 'error') {
+        el.className = 'text-[10px] font-semibold px-2 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200';
+      } else {
+        el.className = 'text-[10px] font-semibold px-2 py-1 rounded-lg bg-slate-100 text-slate-500 border border-slate-200';
+      }
+    }
+
+    function getDefaultExpenses() {
+      return [
+        {
+          id: 'exp-101',
+          date: '2026-10-28',
+          merchant: '澳洲牛奶公司',
+          note: '早餐炒蛋多士',
+          amount: 168.00,
+          payer: 'B',
+          sharers: ['A', 'B', 'C'],
+          paidBy: { A: true, B: true, C: true }
+        },
+        {
+          id: 'exp-102',
+          date: '2026-11-02',
+          merchant: '百老匯戲院',
+          note: '3張戲飛加爆谷',
+          amount: 330.00,
+          payer: 'C',
+          sharers: ['A', 'B', 'C'],
+          paidBy: { A: true, B: true, C: true }
+        },
+        {
+          id: 'exp-103',
+          date: '2026-11-06',
+          merchant: 'DON DON DONKI',
+          note: '零食飲品',
+          amount: 240.00,
+          payer: 'A',
+          sharers: ['A', 'B', 'C'],
+          paidBy: { A: true, B: true, C: true }
+        },
+        {
+          id: 'exp-104',
+          date: '2026-11-11',
+          merchant: '淘寶集運',
+          note: '貓玩具同收納盒',
+          amount: 210.00,
+          payer: 'B',
+          sharers: ['A', 'B'],
+          paidBy: { A: false, B: true }
+        },
+        {
+          id: 'exp-105',
+          date: '2026-11-15',
+          merchant: '海底撈火鍋',
+          note: '慶祝出糧',
+          amount: 690.00,
+          payer: 'C',
+          sharers: ['A', 'B', 'C'],
+          paidBy: { A: false, B: false, C: true }
+        },
+        {
+          id: 'exp-106',
+          date: '2026-11-18',
+          merchant: 'Lady M 蛋糕',
+          note: '千層蛋糕下午茶',
+          amount: 270.00,
+          payer: 'B',
+          sharers: ['A', 'B', 'C'],
+          paidBy: { A: false, B: true, C: false }
+        },
+        {
+          id: 'exp-107',
+          date: '2026-11-21',
+          merchant: 'Uber 車費',
+          note: '夜歸分車錢',
+          amount: 144.00,
+          payer: 'C',
+          sharers: ['A', 'C'],
+          paidBy: { A: false, C: true }
+        },
+        {
+          id: 'exp-108',
+          date: '2026-11-23',
+          merchant: '譚仔三哥米線',
+          note: '一人一碗米線加土匪雞翼',
+          amount: 195.00,
+          payer: 'B',
+          sharers: ['A', 'B', 'C'],
+          paidBy: { A: false, B: true, C: false }
+        },
+        {
+          id: 'exp-109',
+          date: '2026-11-25',
+          merchant: '一田超市',
+          note: '買生果同貓罐罐',
+          amount: 360.00,
+          payer: 'A',
+          sharers: ['A', 'B', 'C'],
+          paidBy: { A: true, B: false, C: false }
+        }
+      ];
+    }
+
+    function loadState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && parsed.names && Array.isArray(parsed.expenses)) {
+            return parsed;
+          }
+        }
+      } catch (e) {}
+      return {
+        names: { ...DEFAULT_NAMES },
+        expenses: getDefaultExpenses()
+      };
+    }
+
+    function saveState() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
+      } catch (e) {}
+
+      if (supabaseClient) {
+        updateSyncBadge('同步中...', 'cloud');
+        supabaseClient
+          .from('palace_ledger')
+          .upsert({
+            id: ROOM_ID,
+            data: appState,
+            updated_at: new Date().toISOString()
+          })
+          .then(({ error }) => {
+            if (error) {
+              console.error('Supabase save error:', error);
+              updateSyncBadge('雲端同步異常', 'error');
+            } else {
+              updateSyncBadge('雲端已同步', 'cloud');
+            }
+          });
+      }
+    }
+
+    async function initCloudSync() {
+      if (!supabaseClient) {
+        updateSyncBadge('本機模式', 'local');
+        return;
+      }
+
+      updateSyncBadge('連線中...', 'cloud');
+      try {
+        const { data, error } = await supabaseClient
+          .from('palace_ledger')
+          .select('data')
+          .eq('id', ROOM_ID)
+          .maybeSingle();
+
+        if (error) {
+          console.error('Supabase load error:', error);
+          updateSyncBadge('雲端連線失敗', 'error');
+          return;
+        }
+
+        if (data && data.data && data.data.names && Array.isArray(data.data.expenses)) {
+          appState = data.data;
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
+          refreshCurrentView();
+        } else {
+          await supabaseClient.from('palace_ledger').upsert({
+            id: ROOM_ID,
+            data: appState,
+            updated_at: new Date().toISOString()
+          });
+        }
+
+        updateSyncBadge('雲端已同步', 'cloud');
+
+        // 僅喺支援 WebSocket 嘅環境（例如 GitHub Pages）啟用即時推送，避免預覽沙盒報錯
+        const isSandboxedPreview = window.location.protocol === 'blob:' || typeof window.WebSocket === 'undefined';
+        if (!isSandboxedPreview) {
+          try {
+            supabaseClient
+              .channel('palace-ledger-realtime')
+              .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'palace_ledger', filter: `id=eq.${ROOM_ID}` },
+                payload => {
+                  const incoming = payload.new && payload.new.data;
+                  if (incoming && incoming.names && Array.isArray(incoming.expenses)) {
+                    appState = incoming;
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
+                    refreshCurrentView();
+                    updateSyncBadge('雲端已同步', 'cloud');
+                  }
+                }
+              )
+              .subscribe();
+          } catch (wsErr) {
+            console.warn('Realtime subscription skipped:', wsErr);
+          }
+        }
+      } catch (err) {
+        console.error(err);
+        updateSyncBadge('雲端連線失敗', 'error');
+      }
+    }
+
+    function refreshCurrentView() {
+      renderAddFormControls();
+      if (currentMainTab === 'person') renderPersonView(false);
+      if (currentMainTab === 'summary') renderSummaryList(false);
+    }
+
+    let appState = loadState();
+    let currentMainTab = 'add';
+    let currentPerson = 'A';
+    let currentSubTab = 'payback';
+    let formPayer = 'A';
+    let formSharers = new Set(['A', 'B', 'C']);
+    let selectedPayExpenseIds = new Set();
+    let pendingDeleteId = null;
+
+    function renderCatAvatar(memberKey, sizeClass = 'w-5 h-5') {
+      if (memberKey === 'A') {
+        return `
+          <span class="inline-flex items-center justify-center ${sizeClass} shrink-0 align-middle">
+            <img src="LP monthly leaflet (1).png" alt="白貓" class="w-full h-full object-contain rounded-full" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';" />
+            <svg viewBox="0 0 100 100" class="w-full h-full hidden" xmlns="http://www.w3.org/2000/svg">
+              <path d="M18 38 L14 14 L38 24 Q50 20 62 24 L86 14 L82 38 Q92 52 86 68 Q78 86 50 88 Q22 86 14 68 Q8 52 18 38 Z" fill="#FBF9F5" stroke="#4A3525" stroke-width="3.5" stroke-linejoin="round"/>
+              <path d="M20 33 L18 19 L33 25 Z" fill="#E8B8B8"/>
+              <path d="M80 33 L82 19 L67 25 Z" fill="#E8B8B8"/>
+              <circle cx="36" cy="54" r="6.5" fill="#1E3A5F" stroke="#4A3525" stroke-width="2"/>
+              <circle cx="38" cy="52" r="2" fill="#FFF"/>
+              <circle cx="64" cy="54" r="6.5" fill="#1E3A5F" stroke="#4A3525" stroke-width="2"/>
+              <circle cx="66" cy="52" r="2" fill="#FFF"/>
+              <path d="M46 64 L54 64 L50 69 Z" fill="#F28B9C"/>
+              <path d="M43 74 L50 69 L57 74" fill="none" stroke="#4A3525" stroke-width="2.5" stroke-linecap="round"/>
+            </svg>
+          </span>
+        `;
+      }
+      if (memberKey === 'B') {
+        return `
+          <span class="inline-flex items-center justify-center ${sizeClass} shrink-0 align-middle">
+            <img src="LP monthly leaflet (2).png" alt="三色貓" class="w-full h-full object-contain rounded-full" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';" />
+            <svg viewBox="0 0 100 100" class="w-full h-full hidden" xmlns="http://www.w3.org/2000/svg">
+              <path d="M18 38 L14 14 L38 24 Q50 20 62 24 L86 14 L82 38 Q92 54 85 70 Q76 87 50 88 Q24 87 15 70 Q8 54 18 38 Z" fill="#FFFDF9" stroke="#4A3525" stroke-width="3.5" stroke-linejoin="round"/>
+              <path d="M16 44 Q14 26 16 16 L38 24 Q44 36 30 48 Z" fill="#F2BE74"/>
+              <path d="M54 28 Q72 24 85 42 Q90 60 78 68 Q62 66 56 46 Z" fill="#8A8A8A"/>
+              <circle cx="36" cy="55" r="6.5" fill="#5A3E1B" stroke="#4A3525" stroke-width="2"/>
+              <circle cx="38" cy="53" r="2" fill="#FFF"/>
+              <circle cx="64" cy="55" r="6.5" fill="#5A3E1B" stroke="#4A3525" stroke-width="2"/>
+              <circle cx="66" cy="53" r="2" fill="#FFF"/>
+              <path d="M46 65 L54 65 L50 70 Z" fill="#F28B9C"/>
+              <path d="M43 75 L50 70 L57 75" fill="none" stroke="#4A3525" stroke-width="2.5" stroke-linecap="round"/>
+            </svg>
+          </span>
+        `;
+      }
+      return `
+        <span class="inline-flex items-center justify-center ${sizeClass} shrink-0 align-middle">
+          <img src="LP monthly leaflet.png" alt="灰貓" class="w-full h-full object-contain rounded-full" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';" />
+          <svg viewBox="0 0 100 100" class="w-full h-full hidden" xmlns="http://www.w3.org/2000/svg">
+            <path d="M17 38 L12 15 L36 23 Q50 19 64 23 L88 15 L83 38 Q92 54 85 71 Q76 87 50 88 Q24 87 15 71 Q8 54 17 38 Z" fill="#9E9791" stroke="#4A3525" stroke-width="3.5" stroke-linejoin="round"/>
+            <path d="M22 76 Q50 58 78 76 Q66 87 50 87 Q34 87 22 76 Z" fill="#F7F3EE"/>
+            <path d="M44 21 L47 36 M50 20 L50 38 M56 21 L53 36" stroke="#4D4845" stroke-width="3" stroke-linecap="round"/>
+            <ellipse cx="36" cy="53" rx="6.5" ry="4.5" fill="#C7C99E" stroke="#4A3525" stroke-width="2"/>
+            <circle cx="36" cy="53" r="2.8" fill="#3B2818"/>
+            <ellipse cx="64" cy="53" rx="6.5" ry="4.5" fill="#C7C99E" stroke="#4A3525" stroke-width="2"/>
+            <circle cx="64" cy="53" r="2.8" fill="#3B2818"/>
+            <path d="M45 62 L55 62 L50 67 Z" fill="#9E5E4B"/>
+            <path d="M43 73 L50 67 L57 73" fill="none" stroke="#4A3525" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
+        </span>
+      `;
+    }
+
+    function escapeHtml(str) {
+      return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function getMemberNameText(memberKey) {
+      return appState.names[memberKey] || DEFAULT_NAMES[memberKey];
+    }
+
+    function renderMemberWithCat(memberKey, sizeClass = 'w-5 h-5') {
+      const name = escapeHtml(getMemberNameText(memberKey));
+      return `<span class="inline-flex items-center justify-center gap-1.5 leading-tight"><span>${name}</span>${renderCatAvatar(memberKey, sizeClass)}</span>`;
+    }
+
+    function formatMoney(num) {
+      return '$' + Number(num || 0).toFixed(2);
+    }
+
+    function formatDisplayDate(isoDateStr) {
+      if (!isoDateStr) return '';
+      const parts = isoDateStr.split('-');
+      if (parts.length !== 3) return isoDateStr;
+      const year = parts[0];
+      const monthIdx = parseInt(parts[1], 10) - 1;
+      const day = parseInt(parts[2], 10);
+      const monthName = MONTHS_SHORT[monthIdx] || parts[1];
+      return `${day} ${monthName} ${year}`;
+    }
+
+    function getShareAmount(expense) {
+      const count = (expense.sharers && expense.sharers.length) || 1;
+      return Number(expense.amount) / count;
+    }
+
+    function sortOldestFirst(expenses) {
+      return [...expenses].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+    }
+
+    function showToast(msg) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.remove('hidden');
+      clearTimeout(el._timer);
+      el._timer = setTimeout(() => el.classList.add('hidden'), 2400);
+    }
+
+    function scrollToFirstUnpaid(containerId) {
+      requestAnimationFrame(() => {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        const target = container.querySelector('[data-first-unpaid="true"]');
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      });
+    }
+
+    function switchMainTab(tab) {
+      currentMainTab = tab;
+      document.querySelectorAll('.main-tab-btn').forEach(btn => {
+        const active = btn.dataset.mainTab === tab;
+        btn.className = active
+          ? 'main-tab-btn py-2 px-1.5 sm:px-2.5 text-[11px] sm:text-xs font-bold rounded-xl bg-white text-orange-600 shadow-xs transition whitespace-nowrap'
+          : 'main-tab-btn py-2 px-1.5 sm:px-2.5 text-[11px] sm:text-xs font-bold rounded-xl border border-white/90 text-amber-900 hover:bg-white/60 transition whitespace-nowrap';
+      });
+
+      document.getElementById('view-add').classList.toggle('hidden', tab !== 'add');
+      document.getElementById('view-person').classList.toggle('hidden', tab !== 'person');
+      document.getElementById('view-summary').classList.toggle('hidden', tab !== 'summary');
+
+      if (tab === 'add') renderAddFormControls();
+      if (tab === 'person') renderPersonView(true);
+      if (tab === 'summary') renderSummaryList(true);
+    }
+
+    function switchSubTab(sub) {
+      currentSubTab = sub;
+      document.querySelectorAll('.sub-tab-btn').forEach(btn => {
+        const active = btn.dataset.subTab === sub;
+        btn.className = active
+          ? 'sub-tab-btn py-2 px-2 text-xs sm:text-sm font-semibold rounded-lg bg-white text-orange-600 shadow-2xs transition whitespace-pre'
+          : 'sub-tab-btn py-2 px-2 text-xs sm:text-sm font-semibold rounded-lg text-slate-600 hover:text-slate-900 transition whitespace-pre';
+      });
+
+      document.getElementById('subview-payback').classList.toggle('hidden', sub !== 'payback');
+      document.getElementById('subview-overall').classList.toggle('hidden', sub !== 'overall');
+
+      if (sub === 'payback') renderPaybackPage1(true);
+      if (sub === 'overall') renderOverallPage2(true);
+    }
+
+    function renderAddFormControls() {
+      const payerWrap = document.getElementById('payer-selector');
+      payerWrap.innerHTML = MEMBERS.map(m => {
+        const selected = formPayer === m;
+        return `
+          <button
+            type="button"
+            data-payer="${m}"
+            class="payer-btn py-2.5 px-2 rounded-xl border text-xs sm:text-sm font-bold transition flex items-center justify-center ${
+              selected
+                ? 'border-orange-500 bg-orange-50 text-orange-700 ring-2 ring-orange-200'
+                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+            }"
+          >${renderMemberWithCat(m, 'w-5 h-5 sm:w-6 sm:h-6')}</button>
+        `;
+      }).join('');
+
+      payerWrap.querySelectorAll('.payer-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          formPayer = btn.dataset.payer;
+          renderAddFormControls();
+        });
+      });
+
+      const sharerWrap = document.getElementById('sharer-selector');
+      sharerWrap.innerHTML = MEMBERS.map(m => {
+        const checked = formSharers.has(m);
+        return `
+          <button
+            type="button"
+            data-sharer="${m}"
+            class="sharer-btn py-2.5 px-2 rounded-xl border text-xs sm:text-sm font-bold transition flex items-center justify-center ${
+              checked
+                ? 'border-emerald-500 bg-emerald-50 text-emerald-800 ring-2 ring-emerald-200'
+                : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
+            }"
+          >${renderMemberWithCat(m, 'w-5 h-5 sm:w-6 sm:h-6')}</button>
+        `;
+      }).join('');
+
+      sharerWrap.querySelectorAll('.sharer-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const m = btn.dataset.sharer;
+          if (formSharers.has(m)) {
+            if (formSharers.size === 1) {
+              showToast('最少要揀 1 個人分帳');
+              return;
+            }
+            formSharers.delete(m);
+          } else {
+            formSharers.add(m);
+          }
+          renderAddFormControls();
+        });
+      });
+
+      updateSplitPreview();
+    }
+
+    function updateSplitPreview() {
+      const amount = parseFloat(document.getElementById('field-amount').value) || 0;
+      const count = formSharers.size || 1;
+      const each = amount / count;
+      const payerName = escapeHtml(getMemberNameText(formPayer));
+      const borrowers = [...formSharers].filter(m => m !== formPayer);
+
+      const previewEl = document.getElementById('split-preview-text');
+      if (borrowers.length === 0) {
+        previewEl.innerHTML = `${payerName} 自己全數承擔 <strong>${formatMoney(amount)}</strong>（無人需要俾返錢）。`;
+      } else {
+        const borrowerLabels = borrowers.map(b => escapeHtml(getMemberNameText(b))).join('、');
+        previewEl.innerHTML = `每人分擔 <strong>${formatMoney(each)}</strong>（共 ${count} 人）· <strong>${borrowerLabels}</strong> 需各俾返 ${payerName} <strong>${formatMoney(each)}</strong>`;
+      }
+    }
+
+    function parseReceiptText(rawText) {
+      const lines = rawText
+        .split(/\r?\n/)
+        .map(l => l.trim())
+        .filter(Boolean);
+
+      let detectedDate = '';
+      const isoMatch = rawText.match(/(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})/);
+      const dmyMatch = rawText.match(/(\d{1,2})[-/.](\d{1,2})[-/.](20\d{2})/);
+      if (isoMatch) {
+        detectedDate = `${isoMatch[1]}-${isoMatch[2].padStart(2, '0')}-${isoMatch[3].padStart(2, '0')}`;
+      } else if (dmyMatch) {
+        detectedDate = `${dmyMatch[3]}-${dmyMatch[2].padStart(2, '0')}-${dmyMatch[1].padStart(2, '0')}`;
+      }
+
+      let detectedAmount = '';
+      const totalLineRegex = /(total|amount|grand\s*total|hkd|hk\$|總計|合計|實收|應付)/i;
+      let candidateAmounts = [];
+
+      lines.forEach(line => {
+        const nums = [...line.matchAll(/(?:HK\$|\$)?\s*(\d{1,5}\.\d{2})\b/gi)].map(m => parseFloat(m[1]));
+        if (nums.length > 0) {
+          if (totalLineRegex.test(line)) {
+            candidateAmounts.push(...nums.map(v => ({ val: v, priority: 2 })));
+          } else {
+            candidateAmounts.push(...nums.map(v => ({ val: v, priority: 1 })));
+          }
+        }
+      });
+
+      if (candidateAmounts.length > 0) {
+        const highPriority = candidateAmounts.filter(c => c.priority === 2);
+        const pool = highPriority.length > 0 ? highPriority : candidateAmounts;
+        const maxVal = Math.max(...pool.map(c => c.val));
+        if (maxVal > 0 && isFinite(maxVal)) {
+          detectedAmount = maxVal.toFixed(2);
+        }
+      }
+
+      let detectedMerchant = '';
+      const ignoreMerchantRegex = /^(receipt|invoice|tax|date|time|tel|welcome|thank|pos|cash|visa|master|octopus|八達通|收據|發票|日期|時間|電話)/i;
+      for (const line of lines.slice(0, 6)) {
+        const cleaned = line.replace(/[^a-zA-Z0-9\u4e00-\u9fa5\s&'-]/g, '').trim();
+        if (cleaned.length >= 2 && !ignoreMerchantRegex.test(cleaned) && !/^\d+$/.test(cleaned)) {
+          detectedMerchant = cleaned.slice(0, 28);
+          break;
+        }
+      }
+
+      return { detectedDate, detectedAmount, detectedMerchant };
+    }
+
+    async function handleReceiptUpload(file) {
+      if (!file) return;
+
+      const statusBox = document.getElementById('ocr-status-box');
+      const statusText = document.getElementById('ocr-status-text');
+      const pctText = document.getElementById('ocr-progress-pct');
+      const bar = document.getElementById('ocr-progress-bar');
+      const previewWrap = document.getElementById('receipt-preview-wrap');
+      const previewImg = document.getElementById('receipt-preview-img');
+      const rawSnippet = document.getElementById('ocr-raw-snippet');
+
+      statusBox.classList.remove('hidden');
+      statusText.textContent = '正在載入免費 OCR 辨識引擎...';
+      pctText.textContent = '5%';
+      bar.style.width = '5%';
+
+      const objectUrl = URL.createObjectURL(file);
+      previewImg.src = objectUrl;
+      previewWrap.classList.remove('hidden');
+      rawSnippet.textContent = '辨識中，請稍候...';
+
+      try {
+        if (!window.Tesseract) {
+          throw new Error('OCR 模組未載入');
+        }
+
+        const result = await Tesseract.recognize(file, 'eng+chi_tra', {
+          logger: m => {
+            if (m.status === 'recognizing text' && typeof m.progress === 'number') {
+              const pct = Math.max(10, Math.round(m.progress * 100));
+              statusText.textContent = '正在讀取單據日期、店名及金額...';
+              pctText.textContent = pct + '%';
+              bar.style.width = pct + '%';
+            }
+          }
+        });
+
+        const text = (result && result.data && result.data.text) || '';
+        rawSnippet.textContent = text.replace(/\s+/g, ' ').trim() || '（未能讀取清晰文字，請手動輸入）';
+
+        const { detectedDate, detectedAmount, detectedMerchant } = parseReceiptText(text);
+        if (detectedDate) document.getElementById('field-date').value = detectedDate;
+        if (detectedAmount) document.getElementById('field-amount').value = detectedAmount;
+        if (detectedMerchant) document.getElementById('field-merchant').value = detectedMerchant;
+
+        updateSplitPreview();
+        statusText.textContent = '辨識完成！請核對以下資料：';
+        pctText.textContent = '100%';
+        bar.style.width = '100%';
+        showToast('單據辨識完成，請確認資料');
+      } catch (err) {
+        console.error(err);
+        statusText.textContent = '自動辨識未能完成，請直接手動填寫欄位';
+        pctText.textContent = '—';
+        rawSnippet.textContent = '可參考左側收據縮圖直接輸入日期、咩黎同港幣。';
+      }
+    }
+
+    function openDeleteModal(expenseId) {
+      pendingDeleteId = expenseId;
+      document.getElementById('delete-modal-title').innerHTML = `<span>真係要刪</span>${renderCatAvatar('C', 'w-7 h-7')}<span>?</span>`;
+      document.getElementById('delete-modal').classList.remove('hidden');
+    }
+
+    function closeDeleteModal() {
+      pendingDeleteId = null;
+      document.getElementById('delete-modal').classList.add('hidden');
+    }
+
+    function renderSummaryList(shouldScroll = false) {
+      const listEl = document.getElementById('summary-list');
+      const countBadge = document.getElementById('summary-count-badge');
+      const sorted = sortOldestFirst(appState.expenses);
+
+      countBadge.textContent = `${sorted.length} 筆`;
+
+      if (sorted.length === 0) {
+        listEl.innerHTML = `<div class="bg-white rounded-2xl p-8 text-center border border-slate-200 text-sm text-slate-400">暫時未有任何帳目，快啲去「記一條新數 ✍️」記第一筆啦！</div>`;
+        return;
+      }
+
+      let foundFirstUnsettled = false;
+
+      listEl.innerHTML = sorted.map(exp => {
+        const each = getShareAmount(exp);
+        const borrowers = exp.sharers.filter(m => m !== exp.payer);
+        const unpaidBorrowers = borrowers.filter(m => !exp.paidBy[m]);
+        const isAllPaid = unpaidBorrowers.length === 0;
+
+        let isFirstUnpaid = false;
+        if (!isAllPaid && !foundFirstUnsettled) {
+          isFirstUnpaid = true;
+          foundFirstUnsettled = true;
+        }
+
+        const payerLabel = escapeHtml(getMemberNameText(exp.payer));
+
+        const statusPills = borrowers.map(m => {
+          const mLabel = escapeHtml(getMemberNameText(m));
+          const paid = !!exp.paidBy[m];
+          return `<span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold ${
+            paid ? 'bg-slate-200/80 text-slate-500 line-through' : 'bg-rose-50 text-rose-700 border border-rose-200'
+          }">${mLabel}：${formatMoney(each)}${paid ? '（已付）' : '（未付）'}</span>`;
+        }).join('');
+
+        return `
+          <article
+            ${isFirstUnpaid ? 'data-first-unpaid="true"' : ''}
+            class="rounded-2xl p-4 border shadow-2xs transition ${
+              isAllPaid
+                ? 'bg-slate-100/80 border-slate-200/80 opacity-65'
+                : 'bg-white border-slate-200'
+            } ${isFirstUnpaid ? 'ring-2 ring-orange-400 first-unpaid-highlight' : ''}"
+          >
+            <div class="flex items-start justify-between gap-2">
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-1.5">
+                  <span class="text-[11px] font-semibold px-2 py-0.5 rounded-md ${
+                    isAllPaid ? 'bg-slate-200 text-slate-500' : 'bg-slate-100 text-slate-600'
+                  }">${formatDisplayDate(exp.date)}</span>
+                  ${isFirstUnpaid ? '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">最舊未找齊</span>' : ''}
+                  ${isAllPaid ? '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-600">已找清</span>' : ''}
+                </div>
+                <h3 class="text-sm sm:text-base font-bold mt-1.5 truncate ${
+                  isAllPaid ? 'text-slate-500' : 'text-slate-900'
+                }">${escapeHtml(exp.merchant)}</h3>
+                ${exp.note ? `<p class="text-xs mt-0.5 ${isAllPaid ? 'text-slate-400' : 'text-slate-500'}">${escapeHtml(exp.note)}</p>` : ''}
+              </div>
+              <div class="text-right shrink-0">
+                <div class="text-base sm:text-lg font-extrabold ${
+                  isAllPaid ? 'text-slate-500 line-through' : 'text-slate-900'
+                }">${formatMoney(exp.amount)}</div>
+                <div class="text-[11px] font-semibold mt-0.5 leading-tight ${
+                  isAllPaid ? 'text-slate-500' : 'text-orange-600'
+                }">${payerLabel} 俾左先</div>
+              </div>
+            </div>
+
+            <div class="mt-3 pt-2.5 border-t ${
+              isAllPaid ? 'border-slate-200/80' : 'border-slate-100'
+            } flex flex-wrap items-center justify-between gap-2">
+              <div class="flex flex-wrap items-center gap-1.5">
+                ${statusPills || '<span class="text-[11px] text-slate-400">付款人自付，無需分攤</span>'}
+              </div>
+              <button
+                type="button"
+                data-delete-id="${exp.id}"
+                class="btn-delete-exp text-[11px] font-medium text-slate-400 hover:text-rose-600 px-2 py-1 rounded-lg hover:bg-rose-50 transition"
+              >刪除</button>
+            </div>
+          </article>
+        `;
+      }).join('');
+
+      listEl.querySelectorAll('.btn-delete-exp').forEach(btn => {
+        btn.addEventListener('click', () => {
+          openDeleteModal(btn.dataset.deleteId);
+        });
+      });
+
+      if (shouldScroll) scrollToFirstUnpaid('summary-list');
+    }
+
+    function renderPersonView(shouldScroll = false) {
+      const personWrap = document.getElementById('person-selector');
+      personWrap.innerHTML = MEMBERS.map(m => {
+        const active = currentPerson === m;
+        return `
+          <button
+            type="button"
+            data-person="${m}"
+            class="person-select-btn py-2.5 px-2.5 rounded-xl border text-sm sm:text-base font-extrabold transition flex items-center justify-center ${
+              active
+                ? 'border-orange-500 bg-orange-50 text-orange-700 ring-2 ring-orange-200'
+                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+            }"
+          >${renderMemberWithCat(m, 'w-6 h-6 sm:w-7 sm:h-7')}</button>
+        `;
+      }).join('');
+
+      personWrap.querySelectorAll('.person-select-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          currentPerson = btn.dataset.person;
+          selectedPayExpenseIds.clear();
+          renderPersonView(true);
+        });
+      });
+
+      if (currentSubTab === 'payback') {
+        renderPaybackPage1(shouldScroll);
+      } else {
+        renderOverallPage2(shouldScroll);
+      }
+    }
+
+    function renderPaybackPage1(shouldScroll = false) {
+      const others = MEMBERS.filter(m => m !== currentPerson);
+      const currentNameText = escapeHtml(getMemberNameText(currentPerson));
+
+      const myItems = sortOldestFirst(
+        appState.expenses.filter(exp => exp.payer !== currentPerson && exp.sharers.includes(currentPerson))
+      );
+
+      const validIds = new Set(myItems.filter(exp => !exp.paidBy[currentPerson]).map(exp => exp.id));
+      selectedPayExpenseIds = new Set([...selectedPayExpenseIds].filter(id => validIds.has(id)));
+
+      const owedTotals = {};
+      others.forEach(o => (owedTotals[o] = 0));
+      myItems.forEach(exp => {
+        if (!exp.paidBy[currentPerson]) {
+          owedTotals[exp.payer] += getShareAmount(exp);
+        }
+      });
+
+      document.getElementById('payback-header-title').innerHTML = `${currentNameText} 欠左佢地既`;
+      document.getElementById('payback-owed-cards').innerHTML = others.map(o => `
+        <div class="bg-white/80 backdrop-blur-xs rounded-xl p-3 border border-orange-200/70">
+          <div class="text-[11px] sm:text-xs font-bold text-orange-800">欠左${escapeHtml(getMemberNameText(o))}既</div>
+          <div class="text-lg sm:text-xl font-black text-orange-950 mt-0.5">${formatMoney(owedTotals[o])}</div>
+        </div>
+      `).join('');
+
+      const quickBar = document.getElementById('quick-select-bar');
+      quickBar.innerHTML = others.map(o => {
+        const unpaidForO = myItems.filter(exp => exp.payer === o && !exp.paidBy[currentPerson]);
+        const allOSelected = unpaidForO.length > 0 && unpaidForO.every(exp => selectedPayExpenseIds.has(exp.id));
+        const btnClass = allOSelected
+          ? 'border-emerald-400 bg-emerald-100 text-emerald-900 ring-2 ring-emerald-200'
+          : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50';
+        return `
+          <button
+            type="button"
+            data-select-payer="${o}"
+            class="btn-quick-select py-2 px-3 rounded-xl border text-xs font-bold transition shadow-2xs flex items-center justify-center gap-1 ${btnClass}"
+          >
+            <span>${allOSelected ? '✓ ' : ''}全選俾 ${escapeHtml(getMemberNameText(o))}</span>
+            <span class="opacity-75">(${unpaidForO.length})</span>
+          </button>
+        `;
+      }).join('');
+
+      quickBar.querySelectorAll('.btn-quick-select').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const targetPayer = btn.dataset.selectPayer;
+          const unpaidIds = myItems
+            .filter(exp => exp.payer === targetPayer && !exp.paidBy[currentPerson])
+            .map(exp => exp.id);
+
+          if (unpaidIds.length === 0) {
+            showToast(`暫時無欠 ${getMemberNameText(targetPayer)} 嘅未付項目`);
+            return;
+          }
+
+          const allSelected = unpaidIds.every(id => selectedPayExpenseIds.has(id));
+          if (allSelected) {
+            unpaidIds.forEach(id => selectedPayExpenseIds.delete(id));
+          } else {
+            unpaidIds.forEach(id => selectedPayExpenseIds.add(id));
+          }
+          renderPaybackPage1(false);
+        });
+      });
+
+      const listEl = document.getElementById('payback-list');
+      if (myItems.length === 0) {
+        listEl.innerHTML = `<div class="bg-white rounded-2xl p-8 text-center border border-slate-200 text-sm text-slate-400">${currentNameText} 暫時無任何需要俾返錢嘅項目！</div>`;
+        updateSelectedPayFooter(others, myItems);
+        return;
+      }
+
+      let foundFirstUnpaid = false;
+
+      listEl.innerHTML = myItems.map(exp => {
+        const isPaid = !!exp.paidBy[currentPerson];
+        const share = getShareAmount(exp);
+        const isChecked = selectedPayExpenseIds.has(exp.id);
+        let isFirstUnpaid = false;
+
+        if (!isPaid && !foundFirstUnpaid) {
+          isFirstUnpaid = true;
+          foundFirstUnpaid = true;
+        }
+
+        const payerLabel = escapeHtml(getMemberNameText(exp.payer));
+
+        return `
+          <label
+            ${isFirstUnpaid ? 'data-first-unpaid="true"' : ''}
+            class="flex items-center gap-3 p-3.5 rounded-2xl border transition cursor-pointer ${
+              isPaid
+                ? 'bg-slate-100/80 border-slate-200/80 opacity-65'
+                : isChecked
+                ? 'bg-emerald-50/70 border-emerald-400 shadow-2xs'
+                : 'bg-white border-slate-200 hover:border-orange-300'
+            } ${isFirstUnpaid ? 'ring-2 ring-orange-400 first-unpaid-highlight' : ''}"
+          >
+            <input
+              type="checkbox"
+              data-exp-id="${exp.id}"
+              ${isPaid ? 'checked disabled' : isChecked ? 'checked' : ''}
+              class="pay-item-checkbox w-5 h-5 rounded-md accent-emerald-600 cursor-pointer shrink-0"
+            />
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span class="text-[11px] font-semibold text-slate-500">${formatDisplayDate(exp.date)}</span>
+                <span class="text-[11px] font-bold px-2 py-0.5 rounded-md bg-orange-50 text-orange-700">俾 ${payerLabel}</span>
+                ${isFirstUnpaid ? '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">首筆未付</span>' : ''}
+              </div>
+              <div class="text-sm font-bold text-slate-900 mt-1 truncate ${isPaid ? 'line-through text-slate-500' : ''}">${escapeHtml(exp.merchant)}</div>
+              <div class="text-[11px] text-slate-500 truncate">總單 ${formatMoney(exp.amount)}（${exp.sharers.length}人分）${exp.note ? ' · ' + escapeHtml(exp.note) : ''}</div>
+            </div>
+            <div class="text-right shrink-0">
+              <div class="text-sm sm:text-base font-extrabold ${isPaid ? 'text-emerald-600' : 'text-slate-900'}">${formatMoney(share)}</div>
+              <span class="inline-block mt-0.5 text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                isPaid ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+              }">${isPaid ? '已俾左' : '未俾'}</span>
+            </div>
+          </label>
+        `;
+      }).join('');
+
+      listEl.querySelectorAll('.pay-item-checkbox:not(:disabled)').forEach(cb => {
+        cb.addEventListener('change', () => {
+          const id = cb.dataset.expId;
+          if (cb.checked) {
+            selectedPayExpenseIds.add(id);
+          } else {
+            selectedPayExpenseIds.delete(id);
+          }
+          renderPaybackPage1(false);
+        });
+      });
+
+      updateSelectedPayFooter(others, myItems);
+      if (shouldScroll) scrollToFirstUnpaid('payback-list');
+    }
+
+    function updateSelectedPayFooter(others, myItems) {
+      const selectedTotals = {};
+      others.forEach(o => (selectedTotals[o] = 0));
+
+      myItems.forEach(exp => {
+        if (!exp.paidBy[currentPerson] && selectedPayExpenseIds.has(exp.id)) {
+          selectedTotals[exp.payer] += getShareAmount(exp);
+        }
+      });
+
+      const summaryEl = document.getElementById('selected-pay-summary');
+      const confirmBtn = document.getElementById('btn-confirm-pay');
+
+      if (selectedPayExpenseIds.size === 0) {
+        summaryEl.innerHTML = `<span class="text-slate-400 font-semibold">你咩都未揀</span>`;
+        confirmBtn.disabled = true;
+      } else {
+        const parts = others.map(o => `俾 ${escapeHtml(getMemberNameText(o))} <span class="text-emerald-700">${formatMoney(selectedTotals[o])}</span>`);
+        summaryEl.innerHTML = parts.join(' <span class="text-slate-300 mx-1">｜</span> ');
+        confirmBtn.disabled = false;
+      }
+    }
+
+    function renderOverallPage2(shouldScroll = false) {
+      const relatedItems = sortOldestFirst(
+        appState.expenses.filter(exp => exp.payer === currentPerson || exp.sharers.includes(currentPerson))
+      );
+
+      let unpaidOwe = 0;
+      let paidOwe = 0;
+      let unpaidReceive = 0;
+      let paidReceive = 0;
+
+      relatedItems.forEach(exp => {
+        const share = getShareAmount(exp);
+        if (exp.payer === currentPerson) {
+          exp.sharers.filter(m => m !== currentPerson).forEach(b => {
+            if (exp.paidBy[b]) paidReceive += share;
+            else unpaidReceive += share;
+          });
+        } else if (exp.sharers.includes(currentPerson)) {
+          if (exp.paidBy[currentPerson]) paidOwe += share;
+          else unpaidOwe += share;
+        }
+      });
+
+      document.getElementById('overall-stats-grid').innerHTML = `
+        <div class="bg-white rounded-2xl p-3.5 border border-rose-200 shadow-2xs">
+          <div class="text-[11px] font-bold text-rose-600">未俾出去（總欠款）</div>
+          <div class="text-lg font-extrabold text-slate-900 mt-0.5">${formatMoney(unpaidOwe)}</div>
+          <div class="text-[11px] text-slate-400 mt-0.5">已俾出：${formatMoney(paidOwe)}</div>
+        </div>
+        <div class="bg-white rounded-2xl p-3.5 border border-emerald-200 shadow-2xs">
+          <div class="text-[11px] font-bold text-emerald-600">未收返（人地欠我）</div>
+          <div class="text-lg font-extrabold text-slate-900 mt-0.5">${formatMoney(unpaidReceive)}</div>
+          <div class="text-[11px] text-slate-400 mt-0.5">已收返：${formatMoney(paidReceive)}</div>
+        </div>
+      `;
+
+      const listEl = document.getElementById('overall-list');
+      if (relatedItems.length === 0) {
+        listEl.innerHTML = `<div class="bg-white rounded-2xl p-8 text-center border border-slate-200 text-sm text-slate-400">暫時無相關帳目。</div>`;
+        return;
+      }
+
+      let foundFirstUnpaid = false;
+
+      listEl.innerHTML = relatedItems.map(exp => {
+        const share = getShareAmount(exp);
+        const iAmPayer = exp.payer === currentPerson;
+
+        let isUnpaidItem = false;
+        let badgeHtml = '';
+        let amountDisplay = '';
+
+        if (iAmPayer) {
+          const borrowers = exp.sharers.filter(m => m !== currentPerson);
+          const unpaidBorrowers = borrowers.filter(b => !exp.paidBy[b]);
+          isUnpaidItem = unpaidBorrowers.length > 0;
+          const totalToCollect = share * borrowers.length;
+          amountDisplay = `+${formatMoney(totalToCollect)}`;
+          badgeHtml = isUnpaidItem
+            ? `<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">待收 ${unpaidBorrowers.map(b => escapeHtml(getMemberNameText(b))).join('、')}</span>`
+            : `<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">已收齊</span>`;
+        } else {
+          isUnpaidItem = !exp.paidBy[currentPerson];
+          amountDisplay = `-${formatMoney(share)}`;
+          badgeHtml = isUnpaidItem
+            ? `<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">未俾 ${escapeHtml(getMemberNameText(exp.payer))}</span>`
+            : `<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">已俾 ${escapeHtml(getMemberNameText(exp.payer))}</span>`;
+        }
+
+        let isFirstUnpaid = false;
+        if (isUnpaidItem && !foundFirstUnpaid) {
+          isFirstUnpaid = true;
+          foundFirstUnpaid = true;
+        }
+
+        return `
+          <div
+            ${isFirstUnpaid ? 'data-first-unpaid="true"' : ''}
+            class="p-3.5 rounded-2xl border transition ${
+              isUnpaidItem ? 'bg-white border-slate-200' : 'bg-slate-100/80 border-slate-200/80 opacity-65'
+            } ${isFirstUnpaid ? 'ring-2 ring-orange-400 first-unpaid-highlight' : ''}"
+          >
+            <div class="flex items-start justify-between gap-2">
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-1.5">
+                  <span class="text-[11px] font-semibold text-slate-500">${formatDisplayDate(exp.date)}</span>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                    iAmPayer ? 'bg-sky-50 text-sky-700' : 'bg-orange-50 text-orange-700'
+                  }">${iAmPayer ? '我俾錢先' : `${escapeHtml(getMemberNameText(exp.payer))} 俾錢先`}</span>
+                  ${isFirstUnpaid ? '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">首筆未清</span>' : ''}
+                </div>
+                <div class="text-sm font-bold text-slate-900 mt-1 truncate">${escapeHtml(exp.merchant)}</div>
+                <div class="text-[11px] text-slate-500">總金額 ${formatMoney(exp.amount)} · 每份 ${formatMoney(share)}</div>
+              </div>
+              <div class="text-right shrink-0">
+                <div class="text-sm sm:text-base font-extrabold ${iAmPayer ? 'text-emerald-600' : 'text-rose-600'}">${amountDisplay}</div>
+                <div class="mt-1">${badgeHtml}</div>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      if (shouldScroll) scrollToFirstUnpaid('overall-list');
+    }
+
+    function setupPasscodeGate() {
+      const gate = document.getElementById('passcode-gate');
+      const appEl = document.getElementById('app');
+      const form = document.getElementById('passcode-form');
+      const input = document.getElementById('passcode-input');
+      const errorEl = document.getElementById('passcode-error');
+
+      const unlock = () => {
+        gate.classList.add('hidden');
+        appEl.classList.remove('hidden');
+      };
+
+      try {
+        if (localStorage.getItem(PASSCODE_UNLOCK_KEY) === 'true') {
+          unlock();
+          return;
+        }
+      } catch (e) {}
+
+      form.addEventListener('submit', e => {
+        e.preventDefault();
+        if (input.value.trim() === PALACE_PASSCODE) {
+          try {
+            localStorage.setItem(PASSCODE_UNLOCK_KEY, 'true');
+          } catch (err) {}
+          errorEl.classList.add('hidden');
+          unlock();
+          showToast('歡迎返到宮裡帳房！');
+        } else {
+          errorEl.classList.remove('hidden');
+          input.value = '';
+          input.focus();
+        }
+      });
+    }
+
+    function initApp() {
+      setupPasscodeGate();
+      const todayIso = new Date().toISOString().split('T')[0];
+      document.getElementById('field-date').value = todayIso;
+
+      document.querySelectorAll('.main-tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => switchMainTab(btn.dataset.mainTab));
+      });
+
+      document.querySelectorAll('.sub-tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => switchSubTab(btn.dataset.subTab));
+      });
+
+      document.getElementById('receipt-file-input').addEventListener('change', e => {
+        const file = e.target.files && e.target.files[0];
+        if (file) handleReceiptUpload(file);
+      });
+
+      document.getElementById('field-amount').addEventListener('input', updateSplitPreview);
+
+      document.getElementById('btn-share-all').addEventListener('click', () => {
+        formSharers = new Set(['A', 'B', 'C']);
+        renderAddFormControls();
+      });
+
+      document.getElementById('expense-form').addEventListener('submit', e => {
+        e.preventDefault();
+        const date = document.getElementById('field-date').value || todayIso;
+        const merchant = document.getElementById('field-merchant').value.trim();
+        const amount = parseFloat(document.getElementById('field-amount').value);
+        const note = document.getElementById('field-note').value.trim();
+
+        if (!merchant || !(amount > 0) || formSharers.size === 0) {
+          showToast('請填妥咩黎、港幣同分帳對象');
+          return;
+        }
+
+        const sharersArr = MEMBERS.filter(m => formSharers.has(m));
+        const paidBy = {};
+        sharersArr.forEach(m => {
+          paidBy[m] = m === formPayer;
+        });
+
+        appState.expenses.push({
+          id: 'exp-' + Date.now(),
+          date,
+          merchant,
+          note,
+          amount: Number(amount.toFixed(2)),
+          payer: formPayer,
+          sharers: sharersArr,
+          paidBy
+        });
+
+        saveState();
+
+        document.getElementById('field-merchant').value = '';
+        document.getElementById('field-amount').value = '';
+        document.getElementById('field-note').value = '';
+        document.getElementById('ocr-status-box').classList.add('hidden');
+        document.getElementById('receipt-file-input').value = '';
+        updateSplitPreview();
+
+        showToast('已記低一條新數！');
+        switchMainTab('summary');
+      });
+
+      document.getElementById('btn-confirm-pay').addEventListener('click', () => {
+        if (selectedPayExpenseIds.size === 0) return;
+
+        let updatedCount = 0;
+        appState.expenses.forEach(exp => {
+          if (selectedPayExpenseIds.has(exp.id) && exp.sharers.includes(currentPerson)) {
+            exp.paidBy[currentPerson] = true;
+            updatedCount++;
+          }
+        });
+
+        selectedPayExpenseIds.clear();
+        saveState();
+        showToast(`已將 ${updatedCount} 項轉做「已付」！`);
+        renderPaybackPage1(true);
+      });
+
+      document.getElementById('btn-cancel-delete').addEventListener('click', closeDeleteModal);
+      document.getElementById('btn-confirm-delete').addEventListener('click', () => {
+        if (pendingDeleteId) {
+          appState.expenses = appState.expenses.filter(item => item.id !== pendingDeleteId);
+          saveState();
+          showToast('已刪除該筆紀錄');
+          renderSummaryList(false);
+        }
+        closeDeleteModal();
+      });
+
+      const namesModal = document.getElementById('names-modal');
+      document.getElementById('btn-open-names').addEventListener('click', () => {
+        document.getElementById('input-name-A').value = getMemberNameText('A');
+        document.getElementById('input-name-B').value = getMemberNameText('B');
+        document.getElementById('input-name-C').value = getMemberNameText('C');
+        namesModal.classList.remove('hidden');
+      });
+      const closeModal = () => namesModal.classList.add('hidden');
+      document.getElementById('btn-close-names').addEventListener('click', closeModal);
+      document.getElementById('btn-close-names-x').addEventListener('click', closeModal);
+      document.getElementById('btn-save-names').addEventListener('click', () => {
+        appState.names.A = document.getElementById('input-name-A').value.trim() || DEFAULT_NAMES.A;
+        appState.names.B = document.getElementById('input-name-B').value.trim() || DEFAULT_NAMES.B;
+        appState.names.C = document.getElementById('input-name-C').value.trim() || DEFAULT_NAMES.C;
+        saveState();
+        closeModal();
+        refreshCurrentView();
+        showToast('已更新成員名稱');
+      });
+
+      document.getElementById('btn-reset-demo').addEventListener('click', () => {
+        appState = {
+          names: { ...DEFAULT_NAMES },
+          expenses: getDefaultExpenses()
+        };
+        selectedPayExpenseIds.clear();
+        saveState();
+        showToast('已重設為預設宮裡示範帳目');
+        switchMainTab(currentMainTab);
+      });
+
+      renderAddFormControls();
+      initCloudSync();
+    }
+
+    window.addEventListener('DOMContentLoaded', initApp);
+  </script>
+</body>
+</html>
