@@ -227,6 +227,15 @@
       </div>
     </div>
 
+    <!-- 雙向對沖一鍵埋數彈窗 -->
+    <div id="net-settle-modal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+      <div class="bg-white rounded-3xl max-w-sm w-full p-5 sm:p-6 shadow-xl border border-orange-200 text-center">
+        <div id="net-settle-header" class="flex items-center justify-center gap-2 text-base font-extrabold text-slate-900"></div>
+        <div id="net-settle-body" class="mt-4"></div>
+        <div id="net-settle-actions" class="mt-5"></div>
+      </div>
+    </div>
+
     <!-- 主內容容器 -->
     <main class="max-w-3xl w-full mx-auto px-4 pt-4 flex-1">
 
@@ -364,10 +373,12 @@
 
         <!-- 子頁面 1：我要俾既錢 -->
         <div id="subview-payback" class="space-y-3">
-          <!-- 頂部欠款統計卡（Pastel 淺橙色系） -->
+          <!-- 頂部欠款統計卡（Pastel 淺橙色系 + 內置對沖數與一鍵俾錢制） -->
           <div class="bg-gradient-to-br from-orange-100 via-amber-100 to-orange-50 border border-orange-200/80 rounded-2xl p-4 sm:p-5 text-orange-950 shadow-2xs">
             <div id="payback-header-title" class="text-sm sm:text-base font-extrabold text-orange-900"></div>
             <div id="payback-owed-cards" class="mt-3 grid grid-cols-2 gap-2.5"></div>
+            <!-- 一鍵雙向對沖埋數區（移入黃色框內） -->
+            <div id="net-settle-bar" class="mt-2.5 grid grid-cols-2 gap-2.5"></div>
           </div>
 
           <!-- 快速全選制（default 白色底，㩒左變淺綠色底） -->
@@ -593,7 +604,7 @@
     let formSharers = new Set(['A', 'B', 'C']);
     let selectedPayExpenseIds = new Set();
     let pendingDeleteId = null;
-
+    let pendingNetSettleTarget = null;
     function renderCatAvatar(memberKey, sizeClass = 'w-5 h-5') {
       if (memberKey === 'A') {
         return `
@@ -1014,6 +1025,136 @@
       document.getElementById('delete-modal').classList.add('hidden');
     }
 
+    // 雙向對沖埋數彈窗控制與執行
+    function openNetSettleModal(targetMember) {
+      const meName = escapeHtml(getMemberNameText(currentPerson));
+      const targetName = escapeHtml(getMemberNameText(targetMember));
+
+      // 1. 我差對方嘅未付項目
+      const iOweItems = appState.expenses.filter(
+        exp => exp.payer === targetMember && exp.sharers.includes(currentPerson) && !exp.paidBy[currentPerson]
+      );
+      const iOweTotal = iOweItems.reduce((sum, exp) => sum + getShareAmount(exp), 0);
+
+      // 2. 對方差我嘅未付項目
+      const theyOweItems = appState.expenses.filter(
+        exp => exp.payer === currentPerson && exp.sharers.includes(targetMember) && !exp.paidBy[targetMember]
+      );
+      const theyOweTotal = theyOweItems.reduce((sum, exp) => sum + getShareAmount(exp), 0);
+
+      // 四捨五入至小數點後兩位避免浮點誤差
+      const netAmount = Math.round((iOweTotal - theyOweTotal) * 100) / 100;
+
+      const headerEl = document.getElementById('net-settle-header');
+      const bodyEl = document.getElementById('net-settle-body');
+      const actionsEl = document.getElementById('net-settle-actions');
+
+      headerEl.innerHTML = `${renderCatAvatar(currentPerson, 'w-7 h-7')}<span>${meName} ↔ ${targetName} 對沖埋數</span>${renderCatAvatar(targetMember, 'w-7 h-7')}`;
+
+      if (iOweItems.length === 0 && theyOweItems.length === 0) {
+        bodyEl.innerHTML = `
+          <div class="bg-slate-50 rounded-2xl p-4 border border-slate-200 text-sm font-bold text-slate-600">
+            你同 ${targetName} 已經清晒數啦，大家互不相欠！✨
+          </div>
+        `;
+        actionsEl.innerHTML = `
+          <button type="button" id="btn-close-net-settle" class="w-full py-2.5 px-4 rounded-xl bg-slate-800 text-white text-xs font-bold hover:bg-slate-900 transition">知道啦</button>
+        `;
+      } else if (netAmount <= 0) {
+        // 其實係對方差我錢（或者啱啱打和 $0.00）
+        const owedByTarget = Math.abs(netAmount);
+        bodyEl.innerHTML = `
+          <div class="bg-amber-50 rounded-2xl p-4 border border-amber-200 space-y-2">
+            <div class="text-xs text-slate-600">
+              ${meName}差${targetName}：<strong>${formatMoney(iOweTotal)}</strong><br/>
+              ${targetName}差${meName}：<strong>${formatMoney(theyOweTotal)}</strong>
+            </div>
+            <div class="pt-2 border-t border-amber-200/80 text-base font-black text-orange-700">
+              ${owedByTarget > 0 ? `係${targetName}差${meName}錢，去追數啦！` : `大家剛好打和（$0.00）！`}
+            </div>
+            ${owedByTarget > 0 ? `<div class="text-xs font-bold text-amber-900">對沖後 ${targetName} 淨欠你 ${formatMoney(owedByTarget)}</div>` : ''}
+          </div>
+        `;
+        actionsEl.innerHTML = owedByTarget === 0
+          ? `
+            <div class="grid grid-cols-2 gap-2.5">
+              <button type="button" id="btn-close-net-settle" class="py-2.5 px-3 rounded-xl border border-slate-300 bg-white text-slate-700 text-xs font-semibold hover:bg-slate-50 transition">取消</button>
+              <button type="button" id="btn-confirm-net-settle" class="py-2.5 px-3 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition">一齊轉做已付</button>
+            </div>
+          `
+          : `
+            <button type="button" id="btn-close-net-settle" class="w-full py-2.5 px-4 rounded-xl bg-orange-600 text-white text-xs font-bold hover:bg-orange-700 transition">收到！去追數啦 💸</button>
+          `;
+      } else {
+        // 本宮差對方錢，顯示對沖算式及 Confirm 按鈕
+        bodyEl.innerHTML = `
+          <div class="bg-orange-50/80 rounded-2xl p-4 border border-orange-200 space-y-2 text-xs">
+            <div class="flex justify-between text-slate-600">
+              <span>${meName}差${targetName}（${iOweItems.length} 筆）：</span>
+              <span class="font-bold text-slate-800">${formatMoney(iOweTotal)}</span>
+            </div>
+            <div class="flex justify-between text-slate-600">
+              <span>減去 ${targetName}差${meName}（${theyOweItems.length} 筆）：</span>
+              <span class="font-bold text-emerald-700">- ${formatMoney(theyOweTotal)}</span>
+            </div>
+            <div class="pt-2.5 border-t border-orange-200 flex items-center justify-between">
+              <span class="font-extrabold text-orange-950 text-sm">實際只需俾${targetName}：</span>
+              <span class="text-xl font-black text-orange-600">${formatMoney(netAmount)}</span>
+            </div>
+          </div>
+          <p class="text-[11px] text-slate-500 mt-2.5">撳確認後，會自動將你同 ${targetName} 之間共 ${iOweItems.length + theyOweItems.length} 筆相關帳目一齊標記為「已付」。</p>
+        `;
+        actionsEl.innerHTML = `
+          <div class="grid grid-cols-2 gap-2.5">
+            <button type="button" id="btn-close-net-settle" class="py-2.5 px-3 rounded-xl border border-slate-300 bg-white text-slate-700 text-xs font-semibold hover:bg-slate-50 transition">未俾住</button>
+            <button type="button" id="btn-confirm-net-settle" class="py-2.5 px-3 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition">Confirm 俾左啦</button>
+          </div>
+        `;
+      }
+
+      pendingNetSettleTarget = targetMember;
+      document.getElementById('net-settle-modal').classList.remove('hidden');
+
+      const closeBtn = document.getElementById('btn-close-net-settle');
+      if (closeBtn) closeBtn.addEventListener('click', closeNetSettleModal);
+
+      const confirmBtn = document.getElementById('btn-confirm-net-settle');
+      if (confirmBtn) {
+        confirmBtn.addEventListener('click', () => {
+          executeNetSettle(pendingNetSettleTarget);
+        });
+      }
+    }
+
+    function closeNetSettleModal() {
+      pendingNetSettleTarget = null;
+      document.getElementById('net-settle-modal').classList.add('hidden');
+    }
+
+    function executeNetSettle(targetMember) {
+      if (!targetMember) return;
+      let count = 0;
+
+      appState.expenses.forEach(exp => {
+        // 1. 我差對方 -> mark 我已付
+        if (exp.payer === targetMember && exp.sharers.includes(currentPerson) && !exp.paidBy[currentPerson]) {
+          exp.paidBy[currentPerson] = true;
+          count++;
+        }
+        // 2. 對方差我 -> mark 對方已付
+        if (exp.payer === currentPerson && exp.sharers.includes(targetMember) && !exp.paidBy[targetMember]) {
+          exp.paidBy[targetMember] = true;
+          count++;
+        }
+      });
+
+      selectedPayExpenseIds.clear();
+      saveState();
+      closeNetSettleModal();
+      showToast(`已對沖埋數！雙方共 ${count} 項轉做「已付」`);
+      renderPaybackPage1(true);
+    }
+
     function renderSummaryList(shouldScroll = false) {
       const listEl = document.getElementById('summary-list');
       const countBadge = document.getElementById('summary-count-badge');
@@ -1151,21 +1292,63 @@
       const validIds = new Set(myItems.filter(exp => !exp.paidBy[currentPerson]).map(exp => exp.id));
       selectedPayExpenseIds = new Set([...selectedPayExpenseIds].filter(id => validIds.has(id)));
 
-      const owedTotals = {};
-      others.forEach(o => (owedTotals[o] = 0));
-      myItems.forEach(exp => {
-        if (!exp.paidBy[currentPerson]) {
-          owedTotals[exp.payer] += getShareAmount(exp);
-        }
+      // 計算「我差佢 - 佢差我」對沖後淨額
+      const netOwedTotals = {};
+      others.forEach(o => {
+        const iOwe = appState.expenses
+          .filter(exp => exp.payer === o && exp.sharers.includes(currentPerson) && !exp.paidBy[currentPerson])
+          .reduce((sum, exp) => sum + getShareAmount(exp), 0);
+        const theyOwe = appState.expenses
+          .filter(exp => exp.payer === currentPerson && exp.sharers.includes(o) && !exp.paidBy[o])
+          .reduce((sum, exp) => sum + getShareAmount(exp), 0);
+        netOwedTotals[o] = Math.round((iOwe - theyOwe) * 100) / 100;
       });
 
-      document.getElementById('payback-header-title').innerHTML = `${currentNameText} 欠左佢地既`;
-      document.getElementById('payback-owed-cards').innerHTML = others.map(o => `
-        <div class="bg-white/80 backdrop-blur-xs rounded-xl p-3 border border-orange-200/70">
-          <div class="text-[11px] sm:text-xs font-bold text-orange-800">欠左${escapeHtml(getMemberNameText(o))}既</div>
-          <div class="text-lg sm:text-xl font-black text-orange-950 mt-0.5">${formatMoney(owedTotals[o])}</div>
-        </div>
+      document.getElementById('payback-header-title').innerHTML = `${currentNameText} 欠左佢地既（對沖後淨額）`;
+      document.getElementById('payback-owed-cards').innerHTML = others.map(o => {
+        const net = netOwedTotals[o];
+        const oName = escapeHtml(getMemberNameText(o));
+        if (net > 0) {
+          return `
+            <div class="bg-white/85 backdrop-blur-xs rounded-xl p-3 border border-orange-200/70">
+              <div class="text-[11px] sm:text-xs font-bold text-orange-800">對沖後欠${oName}</div>
+              <div class="text-lg sm:text-xl font-black text-orange-950 mt-0.5">${formatMoney(net)}</div>
+            </div>
+          `;
+        } else if (net < 0) {
+          return `
+            <div class="bg-white/85 backdrop-blur-xs rounded-xl p-3 border border-emerald-200/80">
+              <div class="text-[11px] sm:text-xs font-bold text-emerald-700">${oName}反欠你</div>
+              <div class="text-lg sm:text-xl font-black text-emerald-700 mt-0.5">+${formatMoney(Math.abs(net))}</div>
+            </div>
+          `;
+        } else {
+          return `
+            <div class="bg-white/85 backdrop-blur-xs rounded-xl p-3 border border-slate-200/80">
+              <div class="text-[11px] sm:text-xs font-bold text-slate-500">同${oName}已清數</div>
+              <div class="text-lg sm:text-xl font-black text-slate-400 mt-0.5">$0.00</div>
+            </div>
+          `;
+        }
+      }).join('');
+
+      // 渲染一鍵雙向對沖埋數按鈕（「俾錢克朗晴子」、「俾錢巨May嬤」）
+      const netBar = document.getElementById('net-settle-bar');
+      netBar.innerHTML = others.map(o => `
+        <button
+          type="button"
+          data-net-target="${o}"
+          class="btn-net-settle py-2.5 px-3 rounded-xl bg-orange-600 hover:bg-orange-700 active:scale-[0.99] text-white text-xs font-extrabold transition shadow-xs flex items-center justify-center gap-1.5"
+        >
+          <span>💸 俾錢${escapeHtml(getMemberNameText(o))}</span>
+        </button>
       `).join('');
+
+      netBar.querySelectorAll('.btn-net-settle').forEach(btn => {
+        btn.addEventListener('click', () => {
+          openNetSettleModal(btn.dataset.netTarget);
+        });
+      });
 
       const quickBar = document.getElementById('quick-select-bar');
       quickBar.innerHTML = others.map(o => {
