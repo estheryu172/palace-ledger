@@ -32,6 +32,16 @@
     .first-unpaid-highlight {
       animation: pulseBorder 2.2s ease-in-out 2;
     }
+    /* 鎖死 iOS Safari 原生日期框闊度，防止向右凸出 */
+    input[type="date"] {
+      -webkit-appearance: none;
+      appearance: none;
+      display: block;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+    }
   </style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen antialiased selection:bg-orange-100 selection:text-orange-800">
@@ -292,34 +302,12 @@
               />
             </div>
             <div class="min-w-0">
-              <label for="field-note" class="block text-xs font-bold text-slate-700 mb-1">備註</label>
+              <label for="field-note" class="block text-xs font-bold text-slate-700 mb-1">備註 <span class="font-normal text-slate-400">（可留空）</span></label>
               <input
                 id="field-note"
                 type="text"
                 placeholder="例如：一人一碗米線 / 幫手買"
                 class="block w-full max-w-full min-w-0 box-border px-3.5 py-2.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-orange-500"
-              />
-            </div>
-          </div>
-
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label for="field-merchant" class="block text-xs font-bold text-slate-700 mb-1">咩黎</label>
-              <input
-                id="field-merchant"
-                type="text"
-                placeholder="例如：譚仔三哥 / 戲飛 / 淘寶"
-                required
-                class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-orange-500"
-              />
-            </div>
-            <div>
-              <label for="field-note" class="block text-xs font-bold text-slate-700 mb-1">備註</label>
-              <input
-                id="field-note"
-                type="text"
-                placeholder="例如：一人一碗米線 / 幫手買"
-                class="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-orange-500"
               />
             </div>
           </div>
@@ -716,7 +704,12 @@
         if (!container) return;
         const target = container.querySelector('[data-first-unpaid="true"]');
         if (target) {
-          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // 保持外層視窗喺最頂（睇到切換視角），淨係捲動清單容器內部
+          const offsetTop = target.offsetTop - container.offsetTop - 8;
+          container.scrollTo({
+            top: Math.max(0, offsetTop),
+            behavior: 'smooth'
+          });
         }
       });
     }
@@ -734,6 +727,8 @@
       document.getElementById('view-person').classList.toggle('hidden', tab !== 'person');
       document.getElementById('view-summary').classList.toggle('hidden', tab !== 'summary');
 
+      window.scrollTo({ top: 0, behavior: 'instant' });
+
       if (tab === 'add') renderAddFormControls();
       if (tab === 'person') renderPersonView(true);
       if (tab === 'summary') renderSummaryList(true);
@@ -750,6 +745,8 @@
 
       document.getElementById('subview-payback').classList.toggle('hidden', sub !== 'payback');
       document.getElementById('subview-overall').classList.toggle('hidden', sub !== 'overall');
+
+      window.scrollTo({ top: 0, behavior: 'instant' });
 
       if (sub === 'payback') renderPaybackPage1(true);
       if (sub === 'overall') renderOverallPage2(true);
@@ -836,23 +833,42 @@
         .map(l => l.trim())
         .filter(Boolean);
 
+      // 1. 辨識日期（支援 YYYY-MM-DD、DD/MM/YYYY 及香港常見英文月份 25 Nov 2026 / Nov 25 2026）
       let detectedDate = '';
+      const monthMap = {
+        jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+        jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12'
+      };
       const isoMatch = rawText.match(/(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})/);
       const dmyMatch = rawText.match(/(\d{1,2})[-/.](\d{1,2})[-/.](20\d{2})/);
+      const textMonthMatch1 = rawText.match(/(\d{1,2})\s*(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[,.\s-]*(20\d{2})/i);
+      const textMonthMatch2 = rawText.match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s.-]*(\d{1,2})[,.\s-]*(20\d{2})/i);
+
       if (isoMatch) {
         detectedDate = `${isoMatch[1]}-${isoMatch[2].padStart(2, '0')}-${isoMatch[3].padStart(2, '0')}`;
       } else if (dmyMatch) {
         detectedDate = `${dmyMatch[3]}-${dmyMatch[2].padStart(2, '0')}-${dmyMatch[1].padStart(2, '0')}`;
+      } else if (textMonthMatch1) {
+        const m = monthMap[textMonthMatch1[2].toLowerCase().slice(0, 3)];
+        detectedDate = `${textMonthMatch1[3]}-${m}-${textMonthMatch1[1].padStart(2, '0')}`;
+      } else if (textMonthMatch2) {
+        const m = monthMap[textMonthMatch2[1].toLowerCase().slice(0, 3)];
+        detectedDate = `${textMonthMatch2[3]}-${m}-${textMonthMatch2[2].padStart(2, '0')}`;
       }
 
+      // 2. 辨識港幣金額（優先抓 Total / 實收 / 總計，排除八達通餘額 / 找續 Change / Balance）
       let detectedAmount = '';
-      const totalLineRegex = /(total|amount|grand\s*total|hkd|hk\$|總計|合計|實收|應付)/i;
+      const totalLineRegex = /(grand\s*total|net\s*total|total\s*due|amount\s*due|total|hkd|hk\$|總計|合計|實收|應付|總額)/i;
+      const excludeLineRegex = /(change|balance|remain|octopus\s*bal|餘額|找續|積分|point|discount|折扣|節省)/i;
       let candidateAmounts = [];
 
       lines.forEach(line => {
-        const nums = [...line.matchAll(/(?:HK\$|\$)?\s*(\d{1,5}\.\d{2})\b/gi)].map(m => parseFloat(m[1]));
+        if (excludeLineRegex.test(line)) return;
+        const nums = [...line.matchAll(/(?:HK\$|\$|HKD)?\s*(\d{1,5}\.\d{2})\b/gi)].map(m => parseFloat(m[1]));
         if (nums.length > 0) {
           if (totalLineRegex.test(line)) {
+            candidateAmounts.push(...nums.map(v => ({ val: v, priority: 3 })));
+          } else if (/(HK\$|\$|HKD)/i.test(line)) {
             candidateAmounts.push(...nums.map(v => ({ val: v, priority: 2 })));
           } else {
             candidateAmounts.push(...nums.map(v => ({ val: v, priority: 1 })));
@@ -861,25 +877,70 @@
       });
 
       if (candidateAmounts.length > 0) {
-        const highPriority = candidateAmounts.filter(c => c.priority === 2);
-        const pool = highPriority.length > 0 ? highPriority : candidateAmounts;
+        const maxPriority = Math.max(...candidateAmounts.map(c => c.priority));
+        const pool = candidateAmounts.filter(c => c.priority === maxPriority);
         const maxVal = Math.max(...pool.map(c => c.val));
         if (maxVal > 0 && isFinite(maxVal)) {
           detectedAmount = maxVal.toFixed(2);
         }
       }
 
+      // 3. 辨識店名（過濾收據常見表頭、電話、地址、分店編號）
       let detectedMerchant = '';
-      const ignoreMerchantRegex = /^(receipt|invoice|tax|date|time|tel|welcome|thank|pos|cash|visa|master|octopus|八達通|收據|發票|日期|時間|電話)/i;
-      for (const line of lines.slice(0, 6)) {
-        const cleaned = line.replace(/[^a-zA-Z0-9\u4e00-\u9fa5\s&'-]/g, '').trim();
-        if (cleaned.length >= 2 && !ignoreMerchantRegex.test(cleaned) && !/^\d+$/.test(cleaned)) {
+      const ignoreMerchantRegex = /^(receipt|invoice|tax|date|time|tel|phone|fax|welcome|thank|pos|cash|visa|master|octopus|shop|unit|floor|g\/f|b\/f|no\.|table|order|staff|cashier|八達通|收據|發票|日期|時間|電話|歡迎|謝謝|單號|枱號|分店)/i;
+      for (const line of lines.slice(0, 8)) {
+        const cleaned = line.replace(/[^a-zA-Z0-9\u4e00-\u9fa5\s&'()-]/g, '').trim();
+        if (
+          cleaned.length >= 2 &&
+          !ignoreMerchantRegex.test(cleaned) &&
+          !/^[\d\s-]+$/.test(cleaned) &&
+          !/\d{4}\s*\d{4}/.test(cleaned)
+        ) {
           detectedMerchant = cleaned.slice(0, 28);
           break;
         }
       }
 
       return { detectedDate, detectedAmount, detectedMerchant };
+    }
+
+    // 圖像前處理：放大＋灰階＋增強對比度，大幅提升熱感紙單據 OCR 辨識率
+    function preprocessReceiptImage(file) {
+      return new Promise((resolve) => {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+          try {
+            const scale = img.width < 1200 ? Math.min(2.2, 1400 / img.width) : 1;
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.round(img.width * scale);
+            canvas.height = Math.round(img.height * scale);
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const d = imgData.data;
+            const contrast = 1.45; // 增強文字與底色對比
+            for (let i = 0; i < d.length; i += 4) {
+              const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+              let adj = (gray - 128) * contrast + 138;
+              adj = Math.max(0, Math.min(255, adj));
+              d[i] = d[i + 1] = d[i + 2] = adj;
+            }
+            ctx.putImageData(imgData, 0, 0);
+            URL.revokeObjectURL(url);
+            resolve(canvas);
+          } catch (e) {
+            URL.revokeObjectURL(url);
+            resolve(file);
+          }
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(url);
+          resolve(file);
+        };
+        img.src = url;
+      });
     }
 
     async function handleReceiptUpload(file) {
@@ -894,7 +955,7 @@
       const rawSnippet = document.getElementById('ocr-raw-snippet');
 
       statusBox.classList.remove('hidden');
-      statusText.textContent = '正在載入免費 OCR 辨識引擎...';
+      statusText.textContent = '正在增強單據清晰度並載入 OCR...';
       pctText.textContent = '5%';
       bar.style.width = '5%';
 
@@ -908,7 +969,9 @@
           throw new Error('OCR 模組未載入');
         }
 
-        const result = await Tesseract.recognize(file, 'eng+chi_tra', {
+        const processedSource = await preprocessReceiptImage(file);
+
+        const result = await Tesseract.recognize(processedSource, 'eng+chi_tra', {
           logger: m => {
             if (m.status === 'recognizing text' && typeof m.progress === 'number') {
               const pct = Math.max(10, Math.round(m.progress * 100));
